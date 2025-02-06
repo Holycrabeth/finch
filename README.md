@@ -3,6 +3,65 @@
 ## Graph
 Using graphtools (https://graph-tool.skewed.de/), I create a graph of tokens as nodes and LPs as edges by querying two subgraphs (via The Graph - https://thegraph.com/en/). These queries return the current reserves and token addresses needed to build the graph. Once the graph is built, I use a graphtools path finding algorithm to find all cycles of length 2 or 3. I then create a map of pair token address -> pair info (reserves and token address). I then save this map as a JSON file that will be used by my bot. Getting the latest graph should be run on startup of the bot. It only needs to be run on startup (not on-going).
 
+
+### Note
+the subgraph now no longer provides services to assist us in querying the pair list, for those that have a locally run archive node, you can use the following script to query the uniswap v2 factory address and then put that into a pairs.json file.
+
+```javascript
+// Import ethers from Hardhat package
+const { ethers } = require("hardhat")
+// We'll use fs to write JSON to a file
+const fs = require("fs")
+
+async function main() {
+    // Connect to the network (Change the network in hardhat.config.js if necessary)
+    const [deployer] = await ethers.getSigners()
+
+    // Log the deployer address
+    console.log("Using account:", deployer.address)
+
+    // Uniswap V2 Factory Contract Address and ABI
+    const factoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"
+    const FactoryABI = [
+        "function allPairsLength() view returns (uint)",
+        "function allPairs(uint256) view returns (address)",
+    ]
+
+    // Create a contract instance
+    const factoryContract = new ethers.Contract(
+        factoryAddress,
+        FactoryABI,
+        deployer,
+    )
+
+    // Fetch the total number of pairs
+    const totalPairs = await factoryContract.allPairsLength()
+    console.log(`Total pairs: ${totalPairs}`)
+
+    // We'll store all pair addresses in an array
+    let pairsData = []
+
+    // Loop through each index and fetch the pair address
+    for (let i = 0; i < totalPairs; i++) {
+        const pairAddress = await factoryContract.allPairs(i)
+        console.log(`Pair index ${i}: Address - ${pairAddress}`)
+
+        // Push pair address to the array
+        pairsData.push(pairAddress)
+    }
+
+    // Write the array of pair addresses to a JSON file
+    fs.writeFileSync("pairs.json", JSON.stringify(pairsData, null, 2))
+    console.log(`Successfully saved ${pairsData.length} pairs to pairs.json`)
+}
+
+// Call the main function and catch any errors
+main().catch((error) => {
+    console.error(error)
+    process.exitCode = 1
+})
+```
+
 ## The bot
 You need to provide a Blocknative API key, an RPC URL and the private key to your EOA
 1. Loads the pairsToTokens.json file that we created above.
