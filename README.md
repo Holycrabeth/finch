@@ -62,6 +62,65 @@ main().catch((error) => {
 })
 ```
 
+
+### and following that, to make the json file more complete, you can run the subsequent code to write another json file with enriched date of token0 and token1
+
+
+```javascript
+const { ethers } = require("hardhat");
+const fs = require("fs");
+
+async function main() {
+  // 1. Read the list of pair addresses from pairs.json
+  const pairsData = JSON.parse(fs.readFileSync("pairs.json", "utf8"));
+  console.log(`Loaded ${pairsData.length} pair addresses from pairs.json`);
+
+  // Create a provider from Hardhat
+  const provider = ethers.provider;
+
+  // Minimal Pair ABI (only token0 & token1 needed)
+  const pairABI = [
+    "function token0() external view returns (address)",
+    "function token1() external view returns (address)"
+  ];
+
+  // We'll accumulate the new data here
+  let pairsWithTokens = [];
+
+  // 2. Loop over each pair address and fetch token0 & token1
+  for (const pairAddress of pairsData) {
+    const pairContract = new ethers.Contract(pairAddress, pairABI, provider);
+
+    try {
+      const token0 = await pairContract.token0();
+      const token1 = await pairContract.token1();
+
+      console.log(`Pair ${pairAddress} => token0: ${token0}, token1: ${token1}`);
+
+      // Store the enriched data
+      pairsWithTokens.push({
+        pairAddress,
+        token0,
+        token1
+      });
+    } catch (err) {
+      // If there's an error reading token0/token1 (e.g. if it's not actually a Uniswap pair)
+      console.error(`Error fetching token0/token1 for pair ${pairAddress}: ${err.message}`);
+    }
+  }
+
+  // 3. Write the enriched data to a new JSON file
+  fs.writeFileSync("pairsWithTokens.json", JSON.stringify(pairsWithTokens, null, 2));
+  console.log(`Successfully wrote ${pairsWithTokens.length} entries to pairsWithTokens.json`);
+}
+
+main().catch((error) => {
+  console.error("Error in main:", error);
+  process.exit(1);
+});
+```
+
+
 ## The bot
 You need to provide a Blocknative API key, an RPC URL and the private key to your EOA
 1. Loads the pairsToTokens.json file that we created above.
