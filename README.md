@@ -8,117 +8,89 @@ Using graphtools (https://graph-tool.skewed.de/), I create a graph of tokens as 
 the subgraph now no longer provides services to assist us in querying the pair list, for those that have a locally run archive node, you can use the following script to query the uniswap v2 factory address and then put that into a pairs.json file.
 
 ```javascript
-// Import ethers from Hardhat package
-const { ethers } = require("hardhat")
-// We'll use fs to write JSON to a file
-const fs = require("fs")
-
-async function main() {
-    // Connect to the network (Change the network in hardhat.config.js if necessary)
-    const [deployer] = await ethers.getSigners()
-
-    // Log the deployer address
-    console.log("Using account:", deployer.address)
-
-    // Uniswap V2 Factory Contract Address and ABI
-    const factoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"
-    const FactoryABI = [
-        "function allPairsLength() view returns (uint)",
-        "function allPairs(uint256) view returns (address)",
-    ]
-
-    // Create a contract instance
-    const factoryContract = new ethers.Contract(
-        factoryAddress,
-        FactoryABI,
-        deployer,
-    )
-
-    // Fetch the total number of pairs
-    const totalPairs = await factoryContract.allPairsLength()
-    console.log(`Total pairs: ${totalPairs}`)
-
-    // We'll store all pair addresses in an array
-    let pairsData = []
-
-    // Loop through each index and fetch the pair address
-    for (let i = 0; i < totalPairs; i++) {
-        const pairAddress = await factoryContract.allPairs(i)
-        console.log(`Pair index ${i}: Address - ${pairAddress}`)
-
-        // Push pair address to the array
-        pairsData.push(pairAddress)
-    }
-
-    // Write the array of pair addresses to a JSON file
-    fs.writeFileSync("pairs.json", JSON.stringify(pairsData, null, 2))
-    console.log(`Successfully saved ${pairsData.length} pairs to pairs.json`)
-}
-
-// Call the main function and catch any errors
-main().catch((error) => {
-    console.error(error)
-    process.exitCode = 1
-})
-```
 
 
-### and following that, to make the json file more complete, you can run the subsequent code to write another json file with enriched date of token0 and token1
-
-
-```javascript
 const { ethers } = require("hardhat");
 const fs = require("fs");
 
 async function main() {
-  // 1. Read the list of pair addresses from pairs.json
-  const pairsData = JSON.parse(fs.readFileSync("pairs.json", "utf8"));
-  console.log(`Loaded ${pairsData.length} pair addresses from pairs.json`);
+  // 1. Hardhat/Ethers setup
+  const [deployer] = await ethers.getSigners();
+  console.log("Using account:", deployer.address);
 
-  // Create a provider from Hardhat
-  const provider = ethers.provider;
-
-  // Minimal Pair ABI (only token0 & token1 needed)
-  const pairABI = [
-    "function token0() external view returns (address)",
-    "function token1() external view returns (address)"
+  // 2. Uniswap V2 Factory Contract
+  const factoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"; // mainnet example
+  const factoryABI = [
+    "function allPairsLength() view returns (uint)",
+    "function allPairs(uint256) view returns (address)"
   ];
 
-  // We'll accumulate the new data here
-  let pairsWithTokens = [];
+  // 3. Pair Contract ABI (token0, token1, getReserves)
+  const pairABI = [
+    "function token0() external view returns (address)",
+    "function token1() external view returns (address)",
+    "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)"
+  ];
 
-  // 2. Loop over each pair address and fetch token0 & token1
-  for (const pairAddress of pairsData) {
-    const pairContract = new ethers.Contract(pairAddress, pairABI, provider);
+  // 4. Create the Factory contract instance
+  const factoryContract = new ethers.Contract(factoryAddress, factoryABI, deployer);
+
+  // 5. Fetch total pairs
+  const totalPairs = await factoryContract.allPairsLength();
+  console.log(`Total pairs: ${totalPairs}`);
+
+  // 6. Prepare an array to store the data
+  let pairsData = [];
+
+  // 7. Loop through each pair, fetch addresses and reserves
+  for (let i = 0; i < totalPairs; i++) {
+    const pairAddress = await factoryContract.allPairs(i);
+    console.log(`Pair #${i} => ${pairAddress}`);
+
+    // Create a contract instance for this pair
+    const pairContract = new ethers.Contract(pairAddress, pairABI, deployer);
 
     try {
+      // Fetch token addresses
       const token0 = await pairContract.token0();
       const token1 = await pairContract.token1();
 
-      console.log(`Pair ${pairAddress} => token0: ${token0}, token1: ${token1}`);
+      // Fetch reserves
+      const [reserve0, reserve1, blockTimestampLast] = await pairContract.getReserves();
 
-      // Store the enriched data
-      pairsWithTokens.push({
+      // Convert BigNumbers to string
+      pairsData.push({
         pairAddress,
         token0,
-        token1
+        token1,
+        reserve0: reserve0.toString(),
+        reserve1: reserve1.toString(),
+        blockTimestampLast: blockTimestampLast.toString()
       });
-    } catch (err) {
-      // If there's an error reading token0/token1 (e.g. if it's not actually a Uniswap pair)
-      console.error(`Error fetching token0/token1 for pair ${pairAddress}: ${err.message}`);
+
+    } catch (error) {
+      console.error(`Error fetching data for pair ${pairAddress}: ${error.message}`);
     }
   }
 
-  // 3. Write the enriched data to a new JSON file
-  fs.writeFileSync("pairsWithTokens.json", JSON.stringify(pairsWithTokens, null, 2));
-  console.log(`Successfully wrote ${pairsWithTokens.length} entries to pairsWithTokens.json`);
+  // 8. Write everything to JSON
+  fs.writeFileSync(
+    "uniPairsWithReserves.json",
+    JSON.stringify(pairsData, null, 2),
+    "utf8"
+  );
+
+  console.log(`\nDone! Wrote ${pairsData.length} pairs to uniPairsWithReserves.json`);
 }
 
+// Run the script
 main().catch((error) => {
   console.error("Error in main:", error);
-  process.exit(1);
+  process.exitCode = 1;
 });
+
 ```
+
 
 
 ## The bot
